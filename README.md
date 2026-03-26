@@ -1,12 +1,3 @@
----
-title: My Transcription Api
-emoji: 🎙️
-colorFrom: blue
-colorTo: indigo
-sdk: docker
-pinned: false
----
-
 # TranscribeAI Enterprise API
 
 High-performance parallel transcription system powered by FastAPI and Faster-Whisper.
@@ -15,7 +6,7 @@ High-performance parallel transcription system powered by FastAPI and Faster-Whi
 - Parallel media processing
 - Hardware-aware scaling (CPU/GPU)
   - Automatically detects CPU cores and GPU availability
-  - Dynamically calculates optimal worker counts based on available RAM (1.5GB per worker)
+  - Dynamically calculates optimal worker counts based on available RAM (1.2GB per worker)
   - Distributes load across multiple GPUs if available
 - Real-time job status and progress
 - Secure API Key authentication
@@ -23,28 +14,39 @@ High-performance parallel transcription system powered by FastAPI and Faster-Whi
 
 ## Getting Started
 The frontend is available at:
-[http://localhost:8002](http://localhost:8002)
-
-Simply open this URL in your browser to access the TranscribeAI interface.
+[http://localhost:8001](http://localhost:8001) or [http://localhost:8002](http://localhost:8002) (depending on the run method)
 
 ### Running the Project
-1. Install dependencies: `pip install -r requirements.txt`
-2. Start the server: `python python1.py`
-3. Access the dashboard at `http://localhost:8002`
 
-## Docker Usage
-To run the application using Docker:
+#### Option A: Uvicorn (Recommended for Development)
+Run the server on port 8001 with auto-reload:
+```bash
+python -m uvicorn python1:app --host 0.0.0.0 --port 8001 --reload
+```
 
-1. Build the image:
-   ```bash
-   docker build -t transcribe-ai .
-   ```
+#### Option B: Python Script (Default)
+Run the server on port 8002:
+```bash
+python python1.py
+```
 
-2. Run the container:
-   ```bash
-   docker run -d -p 8002:8002 --name transcribe-ai transcribe-ai
-   ```
+### Access the Dashboard
+Open the corresponding URL in your browser:
+- If using **Option A**: [http://localhost:8001](http://localhost:8001)
+- If using **Option B**: [http://localhost:8002](http://localhost:8002)
 
-3. Open `http://localhost:8002` in your browser.
+## Sharing Access
+Once the server is running, you can share it with others:
 
-The Docker container is pre-configured to handle hardware-aware scaling and will automatically detect the available resources in your container environment.
+### 1. Local Network (WiFi/LAN)
+Share with anyone on the same network using your IP address:
+- **Find IP**: Run `ipconfig` (Windows) or `ifconfig` (Mac/Linux).
+- **URL**: `http://<YOUR_IP_ADDRESS>:8001` (if using uvicorn)
+
+### 2. Public Access (Tunneling)
+Share with someone anywhere in the world using a tunnel:
+- **Quick Access**: `ssh -p 443 -R0:localhost:8002 a.pinggy.io`
+- This provides a public URL (e.g., `https://random-name.pinggy.link`).
+
+### 3. Cloud Deployment
+You can deploy this project to services like **Render**, **Railway**, or any VPS (Virtual Private Server) that supports Python.
