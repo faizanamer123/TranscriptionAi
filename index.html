@@ -129,7 +129,8 @@
     </div>
 
     <script>
-         const apiBase = 'https://faizanamir-my-transcription-api.hf.space';
+        // const apiBase = 'http://localhost:8001';
+        const apiBase = 'https://faizanamir-my-transcription-api.hf.space';
 
         let isSystemPaused = false;
 
@@ -190,13 +191,6 @@
             }
         }
 
-        const formatDuration = (seconds) => {
-            if (!seconds || seconds < 0) return "0m 0s";
-            const minutes = Math.floor(seconds / 60);
-            const remainingSeconds = Math.floor(seconds % 60);
-            return `${minutes}m ${remainingSeconds}s`;
-        };
-
         function renderJobs(jobs) {
             const container = document.getElementById('jobs-container');
             const emptyState = document.getElementById('empty-state');
@@ -226,8 +220,6 @@
                     'cancelled': 'bg-gray-50 text-gray-700'
                 };
 
-                const progress = job.status === 'completed' ? 100 : job.progress;
-
                 return `
                     <div class="job-card bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-shadow">
                         <div class="p-6">
@@ -238,7 +230,7 @@
                                     </div>
                                     <div>
                                         <h4 class="font-bold text-gray-900 truncate w-48" title="${job.file}">${job.file}</h4>
-                                        ${job.duration > 0 ? `<p class="text-[10px] text-gray-400 font-bold uppercase mb-1">Duration: ${formatDuration(job.duration)}</p>` : ''}
+                                        ${job.duration > 0 ? `<p class="text-[10px] text-gray-400 font-bold uppercase mb-1">Duration: ${Math.floor(job.duration / 60)}m ${Math.floor(job.duration % 60)}s</p>` : ''}
                                         <div class="flex items-center space-x-2">
                                             <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-bold uppercase tracking-tighter ${badgeColors[job.status] || 'bg-gray-50'}">
                                                 ${job.status}
@@ -251,14 +243,14 @@
                                 </div>
                                 <div class="text-right">
                                     <span class="text-lg font-black ${job.status === 'completed' ? 'text-emerald-600' : 'text-indigo-600'}">
-                                        ${progress}%
+                                        ${job.progress}%
                                     </span>
                                 </div>
                             </div>
 
                             <!-- Progress System -->
                             <div class="relative w-full h-3 bg-gray-100 rounded-full overflow-hidden mb-6">
-                                <div class="progress-bar-fill absolute top-0 left-0 h-full ${statusColors[job.status] || 'bg-gray-400'}" style="width: ${progress}%"></div>
+                                <div class="progress-bar-fill absolute top-0 left-0 h-full ${statusColors[job.status] || 'bg-gray-400'}" style="width: ${job.progress}%"></div>
                             </div>
 
                             ${job.result ? `

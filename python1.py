@@ -6,17 +6,18 @@ from faster_whisper import WhisperModel
 import torch
 import psutil
 import uvicorn
+import subprocess
 import multiprocessing
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger("TranscribeAI")
+
 
 def persistent_worker(task_queue, shared_state, job_to_worker):
     logging.info(f"Worker process {os.getpid()} starting...")
@@ -31,15 +32,15 @@ def persistent_worker(task_queue, shared_state, job_to_worker):
                 if job_id is None:
                     task_queue.task_done()
                     break
-                
+
                 job_to_worker[job_id] = pid
                 segments, info = model.transcribe(path, beam_size=5)
                 total_duration = info.duration
-                
+
                 state = shared_state.get(job_id, {})
                 state.update({"duration": total_duration, "status": "processing", "progress": 10})
                 shared_state[job_id] = state
-                
+
                 text_parts = []
                 for segment in segments:
                     text_parts.append(segment.text)
@@ -52,13 +53,9 @@ def persistent_worker(task_queue, shared_state, job_to_worker):
 
                 full_text = " ".join(text_parts).strip()
                 state = shared_state.get(job_id, {})
-                state.update({
-                    "status": "completed",
-                    "progress": 100,
-                    "result": full_text
-                })
+                state.update({"status": "completed", "progress": 100, "result": full_text})
                 shared_state[job_id] = state
-                
+
             except Exception as e:
                 logging.error(f"Error in worker {os.getpid()} for job {job_id}: {str(e)}")
                 if job_id:
@@ -73,8 +70,8 @@ def persistent_worker(task_queue, shared_state, job_to_worker):
     except Exception as e:
         logging.critical(f"Worker {os.getpid()} crashed: {str(e)}")
 
+
 def main():
-    # Global State and Configuration
     manager = multiprocessing.Manager()
     shared_state = manager.dict()
     task_queue = multiprocessing.JoinableQueue()
@@ -83,50 +80,41 @@ def main():
 
     CPU_CORES = os.cpu_count() or 4
     GPU_AVAILABLE = torch.cuda.is_available()
-    BASE_WORKERS = max(1, CPU_CORES // 4)
+
+    # FIX 1: More generous BASE_WORKERS calculation
+    # CPU: 1 worker per 2 cores, min 2, max 4
+    # GPU: allow up to 6 since GPU handles the heavy lifting
     if GPU_AVAILABLE:
-        BASE_WORKERS = min(BASE_WORKERS, 2)
+        BASE_WORKERS = min(6, max(2, CPU_CORES // 2))
     else:
-        BASE_WORKERS = min(BASE_WORKERS, 2)
+        BASE_WORKERS = min(4, max(2, CPU_CORES // 2))
 
     ALLOWED_EXTENSIONS = {".mp3", ".wav", ".m4a", ".mp4", ".mov", ".mkv"}
     MAX_FILE_SIZE = int(os.getenv("MAX_FILE_SIZE", 500 * 1024 * 1024))
     MAX_JOB_HISTORY = 50
 
-    current_allowed_workers = BASE_WORKERS
-    job_id_counter = 0
+    # FIX 2: Use a mutable dict so all coroutines share live state, not stale closures
+    state = {
+        "allowed_workers": BASE_WORKERS,
+        "is_paused": False,
+        "job_id_counter": 0,
+    }
     jobs = []
     active_job_ids = set()
     cpu_history = []
-    is_paused = False
 
     logger.info("--- Hardware Detection ---")
     logger.info(f"Cores: {CPU_CORES}, GPU: {GPU_AVAILABLE}, Base Workers: {BASE_WORKERS}")
 
-    # Worker and System Functions
-    def get_audio_duration(path):
-        try:
-            result = subprocess.run(
-                ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", path],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                check=True
-            )
-            return float(result.stdout.strip())
-        except Exception as e:
-            logger.warning(f"Could not determine audio duration for {path}: {e}")
-            return 0.0
-
     def sync_worker_pool(target_count):
         nonlocal worker_pool
         worker_pool = [p for p in worker_pool if p.is_alive()]
-        
+
         current_count = len(worker_pool)
         if current_count < target_count:
             for _ in range(target_count - current_count):
                 p = multiprocessing.Process(
-                    target=persistent_worker, 
+                    target=persistent_worker,
                     args=(task_queue, shared_state, job_to_worker)
                 )
                 p.start()
@@ -137,85 +125,105 @@ def main():
                 task_queue.put((None, None))
                 logger.info("Signaled worker process to stop")
 
-    async def dispatcher(): 
-        nonlocal is_paused
-        while True: 
-            if is_paused:
+    async def dispatcher():
+        while True:
+            if state["is_paused"]:
                 await asyncio.sleep(0.5)
                 continue
 
-            # Update local jobs list from shared state
+            # Sync job statuses from shared_state
             for job in jobs:
                 if job["id"] in shared_state:
-                    state = shared_state[job["id"]]
-                    if job["status"] == "processing" and state["status"] in ["completed", "failed", "cancelled"]:
+                    s = shared_state[job["id"]]
+
+                    if job["status"] == "processing" and s["status"] in ["completed", "failed", "cancelled"]:
                         active_job_ids.discard(job["id"])
-                    
-                    job.update(state)
-                    
-                    if state["status"] in ["completed", "failed", "cancelled"]:
+                        logger.info(f"Job {job['id']} finished: {s['status']}. Releasing slot.")
+
+                    job.update(s)
+
+                    if s["status"] in ["completed", "failed", "cancelled"]:
                         if os.path.exists(job["path"]):
-                            try: 
+                            try:
                                 os.remove(job["path"])
-                                logger.info(f"Cleaned up temporary file: {job['path']}")
-                            except Exception as e: 
+                                logger.info(f"Cleaned up: {job['path']}")
+                            except Exception as e:
                                 logger.warning(f"Failed to delete {job['path']}: {e}")
 
-            # Assign new jobs
+            # Recalculate active set defensively
+            active_job_ids.clear()
             for job in jobs:
-                if job["status"] == "waiting" and len(active_job_ids) < current_allowed_workers:
-                    if job.get("status") == "cancelled":
-                        continue
+                if job["status"] == "processing":
+                    active_job_ids.add(job["id"])
+
+            # FIX 3: Read allowed_workers from shared mutable dict — always current
+            allowed = state["allowed_workers"]
+
+            # Dispatch waiting jobs up to current capacity
+            for job in jobs:
+                if len(active_job_ids) >= allowed:
+                    break
+                if job["status"] == "waiting":
                     job["status"] = "processing"
                     active_job_ids.add(job["id"])
                     shared_state[job["id"]] = {"status": "processing", "progress": 10, "result": "", "error": ""}
                     task_queue.put((job["id"], job["path"]))
-                    logger.info(f"Assigned job {job['id']} ({job['file']}) to worker pool.")
-            
-            await asyncio.sleep(1)
+                    logger.info(
+                        f"Dispatched job {job['id']} ({job['file']}). "
+                        f"Active: {len(active_job_ids)}/{allowed}"
+                    )
 
-    async def cpu_monitor(): 
-        nonlocal current_allowed_workers, cpu_history
-        while True: 
-            cpu = psutil.cpu_percent(interval=None) 
+            await asyncio.sleep(0.5)  # FIX 4: Faster dispatch loop (was 1s)
+
+    async def cpu_monitor():
+        while True:
+            cpu = psutil.cpu_percent(interval=None)
             memory = psutil.virtual_memory().percent
-            
-            cpu_history.append(cpu)
-            if len(cpu_history) > 3:
-                cpu_history.pop(0)
-            
-            avg_cpu = sum(cpu_history) / len(cpu_history)
-            
-            new_limit = current_allowed_workers
-            if cpu > 80 or avg_cpu > 70 or memory > 85:
-                new_limit = max(1, current_allowed_workers - 1)
-            elif avg_cpu < 30 and memory < 60 and not GPU_AVAILABLE:
-                new_limit = min(CPU_CORES // 2, 4)
-            elif avg_cpu < 45 and memory < 75:
-                new_limit = BASE_WORKERS
-            
-            if new_limit != current_allowed_workers:
-                logger.info(f"Scaling worker pool from {current_allowed_workers} to {new_limit} based on system load (CPU: {avg_cpu:.1f}%, MEM: {memory}%)")
-                current_allowed_workers = new_limit
-                sync_worker_pool(current_allowed_workers)
-                
-            await asyncio.sleep(2) # Monitor every 2 seconds for stability
 
-    # FastAPI Lifespan Management
+            cpu_history.append(cpu)
+            if len(cpu_history) > 5:  # FIX 5: Larger window = less jitter
+                cpu_history.pop(0)
+
+            avg_cpu = sum(cpu_history) / len(cpu_history)
+            current = state["allowed_workers"]
+            new_limit = current
+
+            # FIX 6: Raised thresholds — don't panic-scale on normal transcription load
+            if cpu > 95 or memory > 95:
+                # True emergency only
+                new_limit = max(1, current - 1)
+            elif avg_cpu > 85 or memory > 88:
+                new_limit = max(1, current - 1)
+            elif avg_cpu < 60 and memory < 80:
+                # Healthy headroom — scale up toward BASE_WORKERS
+                new_limit = min(current + 1, BASE_WORKERS)
+            # else: stay stable
+
+            if new_limit != current:
+                logger.info(
+                    f"Scaling workers {current} → {new_limit} "
+                    f"(CPU: {cpu:.1f}%, avg: {avg_cpu:.1f}%, MEM: {memory:.1f}%)"
+                )
+                state["allowed_workers"] = new_limit
+                sync_worker_pool(new_limit)
+
+            await asyncio.sleep(3)  # FIX 7: Slower monitor = less thrashing
+
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         logger.info("System initializing...")
-        sync_worker_pool(current_allowed_workers)
+        # FIX 8: Spawn full BASE_WORKERS pool immediately, don't wait for monitor
+        sync_worker_pool(BASE_WORKERS)
+        logger.info(f"Worker pool started with {BASE_WORKERS} workers.")
         asyncio.create_task(dispatcher())
         asyncio.create_task(cpu_monitor())
         yield
         logger.info("System shutting down...")
         for p in worker_pool:
             if p.is_alive():
-                logger.info(f"Terminating worker process {p.pid}")
+                logger.info(f"Terminating worker {p.pid}")
                 p.terminate()
 
-    # FastAPI App Initialization
     app = FastAPI(
         title="TranscribeAI Enterprise API",
         description="High-performance parallel transcription system",
@@ -229,10 +237,8 @@ def main():
         allow_headers=["*"],
     )
 
-    # API Endpoints
     @app.post("/upload")
     async def upload(files: list[UploadFile]):
-        nonlocal job_id_counter
         os.makedirs("uploads", exist_ok=True)
 
         newly_added = []
@@ -247,17 +253,18 @@ def main():
                 continue
 
             safe_filename = os.path.basename(file.filename)
-            path = os.path.join("uploads", f"{job_id_counter}_{safe_filename}")
-            
+            job_id = state["job_id_counter"]
+            path = os.path.join("uploads", f"{job_id}_{safe_filename}")
+
             try:
                 with open(path, "wb") as buffer:
                     shutil.copyfileobj(file.file, buffer)
             except Exception as e:
-                logger.error(f"Error saving uploaded file {file.filename}: {e}")
+                logger.error(f"Error saving {file.filename}: {e}")
                 continue
 
             job = {
-                "id": job_id_counter,
+                "id": job_id,
                 "file": safe_filename,
                 "path": path,
                 "status": "waiting",
@@ -266,67 +273,64 @@ def main():
                 "duration": 0.0,
                 "error": ""
             }
-            
+
             jobs.append(job)
             newly_added.append(job)
-            job_id_counter += 1
+            state["job_id_counter"] += 1
 
         if not newly_added:
             raise HTTPException(status_code=400, detail="No valid audio/video files provided or files too large.")
 
-        logger.info(f"Batch upload successful: {len(newly_added)} jobs created.")
+        logger.info(f"Batch upload: {len(newly_added)} jobs queued.")
         return {"status": "uploaded", "jobs": newly_added}
 
     @app.get("/status")
     async def get_status():
         return {
             "cpu_usage": psutil.cpu_percent(),
-            "max_workers": current_allowed_workers,
+            "max_workers": state["allowed_workers"],
+            "base_workers": BASE_WORKERS,
             "active_workers": len(active_job_ids),
             "queue_size": len([j for j in jobs if j["status"] == "waiting"]),
-            "is_paused": is_paused,
-            "jobs": jobs[::-1][:MAX_JOB_HISTORY] # Return only recent history
+            "is_paused": state["is_paused"],
+            "jobs": jobs[::-1][:MAX_JOB_HISTORY]
         }
 
     @app.post("/pause")
     async def pause():
-        nonlocal is_paused
-        is_paused = True
+        state["is_paused"] = True
         for p in worker_pool:
             try:
-                ps_proc = psutil.Process(p.pid)
-                ps_proc.suspend()
-            except Exception as e: 
+                psutil.Process(p.pid).suspend()
+            except Exception as e:
                 logger.error(f"Failed to suspend worker {p.pid}: {e}")
-        logger.info("System execution paused by user.")
+        logger.info("System paused.")
         return {"status": "paused"}
 
     @app.post("/resume")
     async def resume():
-        nonlocal is_paused
-        is_paused = False
+        state["is_paused"] = False
         for p in worker_pool:
             try:
-                ps_proc = psutil.Process(p.pid)
-                ps_proc.resume()
-            except Exception as e: 
+                psutil.Process(p.pid).resume()
+            except Exception as e:
                 logger.error(f"Failed to resume worker {p.pid}: {e}")
-        logger.info("System execution resumed by user.")
+        logger.info("System resumed.")
         return {"status": "resumed"}
 
     @app.post("/cancel/{job_id}")
     async def cancel_job(job_id: int):
         nonlocal worker_pool
-        job_to_cancel = next((job for job in jobs if job["id"] == job_id), None)
+        job_to_cancel = next((j for j in jobs if j["id"] == job_id), None)
 
         if not job_to_cancel:
             raise HTTPException(status_code=404, detail="Job not found")
 
         if job_to_cancel["status"] == "waiting":
             job_to_cancel["status"] = "cancelled"
-            logger.info(f"Job {job_id} cancelled while waiting.")
+            logger.info(f"Job {job_id} cancelled (was waiting).")
             return {"status": "cancelled", "job": job_to_cancel}
-        
+
         elif job_to_cancel["status"] == "processing":
             job_to_cancel["status"] = "cancelled"
             if job_id in job_to_worker:
@@ -334,46 +338,48 @@ def main():
                 for i, p in enumerate(worker_pool):
                     if p.pid == target_pid:
                         p.kill()
-                        logger.info(f"Worker {p.pid} killed to cancel job {job_id}.")
+                        logger.info(f"Killed worker {p.pid} for job {job_id}.")
                         worker_pool.pop(i)
-                        sync_worker_pool(current_allowed_workers)
+                        sync_worker_pool(state["allowed_workers"])
                         break
-            
+
             active_job_ids.discard(job_id)
             if os.path.exists(job_to_cancel["path"]):
-                try: 
+                try:
                     os.remove(job_to_cancel["path"])
-                    logger.info(f"Cleaned up temporary file for cancelled job: {job_to_cancel['path']}")
                 except Exception as e:
-                    logger.warning(f"Failed to delete temp file for cancelled job: {e}")
-            
-            logger.info(f"Active job {job_id} cancelled and worker reset.")
+                    logger.warning(f"Failed to delete temp file: {e}")
+
+            logger.info(f"Job {job_id} cancelled (was processing).")
             return {"status": "cancelled", "job": job_to_cancel}
-            
+
         return {"status": "already_completed", "job": job_to_cancel}
 
     @app.delete("/clear")
     async def clear():
-        nonlocal jobs, worker_pool
-        logger.info("Clearing all job history and resetting worker pool...")
+        nonlocal worker_pool
+        logger.info("Clearing all jobs and resetting workers...")
         for p in worker_pool:
-            try: p.kill()
-            except: pass
+            try:
+                p.kill()
+            except:
+                pass
         worker_pool = []
-        sync_worker_pool(current_allowed_workers)
+        sync_worker_pool(state["allowed_workers"])
 
-        jobs = []
+        jobs.clear()
         while not task_queue.empty():
             try:
                 task_queue.get_nowait()
-            except: break
-            
+            except:
+                break
+
         active_job_ids.clear()
         return {"status": "cleared"}
 
     uvicorn.run(app, host="0.0.0.0", port=8001, log_level="info")
 
-# Main Execution Block
+
 if __name__ == "__main__":
     multiprocessing.freeze_support()
     main()
