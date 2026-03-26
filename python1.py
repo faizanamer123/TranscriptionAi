@@ -2,7 +2,11 @@ import os
 import shutil
 import asyncio
 import logging
+from dotenv import load_dotenv
 from faster_whisper import WhisperModel
+
+# Load environment variables
+load_dotenv()
 import torch
 import psutil
 import uvicorn

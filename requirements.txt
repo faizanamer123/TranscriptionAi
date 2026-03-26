@@ -6,3 +6,4 @@ torch
 psutil
 httpx
 pytest
+python-dotenv
