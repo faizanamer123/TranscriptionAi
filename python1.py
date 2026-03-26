@@ -13,7 +13,7 @@ import uvicorn
 import subprocess
 import multiprocessing
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, UploadFile, HTTPException, Request, Depends
+from fastapi import FastAPI, UploadFile, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -24,17 +24,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger("TranscribeAI")
 
-# Security Configuration
-API_KEY = os.getenv("API_KEY", "dev-key-123")  # Change this in production!
+# Security Configuration (Restricted by Domain)
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*").split(",")
-
-async def verify_api_key(request: Request):
-    if request.method == "OPTIONS":
-        return
-    api_key = request.headers.get("X-API-Key")
-    if api_key != API_KEY:
-        logger.warning(f"Unauthorized access attempt from {request.client.host}")
-        raise HTTPException(status_code=403, detail="Invalid or missing API Key")
 
 def persistent_worker(task_queue, shared_state, job_to_worker):
     logging.info(f"Worker process {os.getpid()} starting...")
@@ -240,8 +231,7 @@ def main():
         title="TranscribeAI Enterprise API",
         description="High-performance parallel transcription system",
         version="1.0.0",
-        lifespan=lifespan,
-        dependencies=[Depends(verify_api_key)]
+        lifespan=lifespan
     )
     
     app.add_middleware(

@@ -41,23 +41,14 @@
                     </div>
                     <h1 class="text-xl font-extrabold tracking-tight text-gray-900">Transcribe<span class="text-indigo-600">AI</span> <span class="text-xs font-medium bg-indigo-50 text-indigo-600 px-2 py-1 rounded-md ml-2 uppercase tracking-widest">Enterprise</span></h1>
                 </div>
-                <div class="flex items-center space-x-6">
-                    <div class="flex items-center space-x-4">
-                        <button id="pause-btn" onclick="togglePause()" class="p-2 bg-indigo-50 text-indigo-600 rounded-lg hover:bg-indigo-100 transition-colors">
-                            <svg id="pause-icon" class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                            <svg id="resume-icon" class="w-6 h-6 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                        </button>
-                        <div class="text-right hidden sm:block">
-                            <p class="text-[10px] uppercase font-bold text-gray-400 tracking-tighter">System Health</p>
-                            <div class="flex items-center space-x-2">
-                                <span id="cpu-text" class="text-sm font-mono font-bold text-gray-700">CPU: 0%</span>
-                                <div class="w-16 h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                                    <div id="cpu-bar" class="h-full bg-indigo-500 transition-all duration-500" style="width: 0%"></div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <button onclick="clearAll()" class="text-sm text-gray-500 hover:text-red-600 font-semibold transition-colors">Clear History</button>
+                <div class="flex items-center gap-3">
+                    <button onclick="clearAll()" title="Clear History" class="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
+                        <i data-lucide="trash-2" class="w-5 h-5"></i>
+                    </button>
+                    <button id="pause-btn" onclick="togglePause()" class="p-2 bg-indigo-50 text-indigo-600 rounded-lg hover:bg-indigo-100 transition-colors">
+                        <i data-lucide="pause" id="pause-icon" class="w-5 h-5"></i>
+                        <i data-lucide="play" id="resume-icon" class="w-5 h-5 hidden"></i>
+                    </button>
                 </div>
             </div>
         </header>
@@ -130,21 +121,12 @@
 
     <script>
         const apiBase = 'https://faizanamir-my-transcription-api.hf.space';
-        const apiKey = 'dev-key-123'; // Matches the backend default
 
         let isSystemPaused = false;
 
-        async function secureFetch(endpoint, options = {}) {
-            const headers = {
-                ...options.headers,
-                'X-API-Key': apiKey
-            };
-            return fetch(`${apiBase}${endpoint}`, { ...options, headers });
-        }
-
         async function fetchStatus() {
             try {
-                const res = await secureFetch('/status');
+                const res = await fetch(`${apiBase}/status`);
                 const data = await res.json();
                 
                 // Update System Metrics
@@ -179,9 +161,9 @@
         }
 
         async function togglePause() {
-            const endpoint = isSystemPaused ? '/resume' : '/pause';
+            const endpoint = isSystemPaused ? 'resume' : 'pause';
             try {
-                await secureFetch(endpoint, { method: 'POST' });
+                await fetch(`${apiBase}/${endpoint}`, { method: 'POST' });
                 fetchStatus();
             } catch (e) {
                 console.error('Pause toggle failed', e);
@@ -191,7 +173,7 @@
         async function cancelJob(jobId) {
             if (confirm('Cancel this transcription task?')) {
                 try {
-                    await secureFetch(`/cancel/${jobId}`, { method: 'POST' });
+                    await fetch(`${apiBase}/cancel/${jobId}`, { method: 'POST' });
                     fetchStatus();
                 } catch (e) {
                     console.error('Cancel failed', e);
@@ -291,11 +273,11 @@
             }
 
             try {
-                const res = await secureFetch('/upload', { method: 'POST', body: formData });
+                const res = await fetch(`${apiBase}/upload`, { method: 'POST', body: formData });
                 if (res.ok) {
                     fetchStatus();
                 } else {
-                    alert('Upload Pipeline Failed: Unauthorized or Network Error');
+                    alert('Upload Pipeline Failed');
                 }
             } catch (e) { 
                 console.error(e);
@@ -305,7 +287,7 @@
 
         async function clearAll() {
             if (confirm('Clear all system job history?')) {
-                await secureFetch('/clear', { method: 'DELETE' });
+                await fetch(`${apiBase}/clear`, { method: 'DELETE' });
                 fetchStatus();
             }
         }
