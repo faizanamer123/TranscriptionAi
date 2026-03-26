@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+uploads/
+.env
+.vscode/
+node_modules/
+.pytest_cache/
+Architecture.png

@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TranscribeAI | Enterprise Edition</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+        }
+        .progress-bar-fill {
+            transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .job-card {
+            transition: all 0.2s ease;
+        }
+        .job-card:hover {
+            transform: translateY(-2px);
+        }
+        .metric-card {
+            background: white;
+            border: 1px solid #e5e7eb;
+            border-radius: 1rem;
+            padding: 1rem;
+        }
+    </style>
+</head>
+<body class="text-gray-900 antialiased">
+    <div class="min-h-screen pb-12">
+        <!-- Header -->
+        <header class="bg-white border-b border-gray-200 sticky top-0 z-10 shadow-sm">
+            <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+                <div class="flex items-center space-x-2">
+                    <div class="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-200">
+                        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"></path>
+                        </svg>
+                    </div>
+                    <h1 class="text-xl font-extrabold tracking-tight text-gray-900">Transcribe<span class="text-indigo-600">AI</span> <span class="text-xs font-medium bg-indigo-50 text-indigo-600 px-2 py-1 rounded-md ml-2 uppercase tracking-widest">Enterprise</span></h1>
+                </div>
+                <div class="flex items-center space-x-6">
+                    <div class="flex items-center space-x-4">
+                        <button id="pause-btn" onclick="togglePause()" class="p-2 bg-indigo-50 text-indigo-600 rounded-lg hover:bg-indigo-100 transition-colors">
+                            <svg id="pause-icon" class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                            <svg id="resume-icon" class="w-6 h-6 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                        </button>
+                        <div class="text-right hidden sm:block">
+                            <p class="text-[10px] uppercase font-bold text-gray-400 tracking-tighter">System Health</p>
+                            <div class="flex items-center space-x-2">
+                                <span id="cpu-text" class="text-sm font-mono font-bold text-gray-700">CPU: 0%</span>
+                                <div class="w-16 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                                    <div id="cpu-bar" class="h-full bg-indigo-500 transition-all duration-500" style="width: 0%"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <button onclick="clearAll()" class="text-sm text-gray-500 hover:text-red-600 font-semibold transition-colors">Clear History</button>
+                </div>
+            </div>
+        </header>
+
+        <main class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 mt-8">
+            <!-- Stats Dashboard -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+                <div class="metric-card flex items-center justify-between">
+                    <div>
+                        <p class="text-xs font-bold text-gray-400 uppercase tracking-wider">System Throughput</p>
+                        <p id="worker-count" class="text-2xl font-black text-gray-900">0 / 0</p>
+                    </div>
+                    <div class="p-3 bg-blue-50 rounded-lg text-blue-600">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                    </div>
+                </div>
+                <div class="metric-card flex items-center justify-between">
+                    <div>
+                        <p class="text-xs font-bold text-gray-400 uppercase tracking-wider">Queue Depth</p>
+                        <p id="queue-count" class="text-2xl font-black text-gray-900">0</p>
+                    </div>
+                    <div class="p-3 bg-amber-50 rounded-lg text-amber-600">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16m-7 6h7"></path></svg>
+                    </div>
+                </div>
+                <div class="metric-card flex items-center justify-between">
+                    <div>
+                        <p class="text-xs font-bold text-gray-400 uppercase tracking-wider">Total Tasks</p>
+                        <p id="total-count" class="text-2xl font-black text-gray-900">0</p>
+                    </div>
+                    <div class="p-3 bg-green-50 rounded-lg text-green-600">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path></svg>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Upload Area -->
+            <div class="mb-8">
+                <div 
+                    id="drop-zone"
+                    class="relative border-2 border-dashed border-indigo-200 bg-white rounded-2xl p-16 text-center hover:border-indigo-500 hover:bg-indigo-50/30 transition-all group cursor-pointer"
+                    onclick="document.getElementById('file-input').click()"
+                >
+                    <input type="file" id="file-input" class="hidden" multiple accept="audio/*,video/*" onchange="handleFileUpload(event)">
+                    <div class="mx-auto w-20 h-20 bg-indigo-100 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-300">
+                        <svg class="w-10 h-10 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+                        </svg>
+                    </div>
+                    <h3 class="text-xl font-bold text-gray-900 mb-2">Deploy Files to Queue</h3>
+                    <p class="text-gray-500 max-w-sm mx-auto">Drag multiple audio or video assets here for high-performance parallel transcription.</p>
+                </div>
+            </div>
+
+            <!-- Jobs Grid -->
+            <div id="jobs-container" class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <!-- Jobs will be inserted here -->
+            </div>
+
+            <!-- Empty State -->
+            <div id="empty-state" class="hidden text-center py-24 bg-white border border-gray-200 rounded-3xl border-dashed">
+                <div class="mx-auto w-24 h-24 bg-gray-50 rounded-full flex items-center justify-center mb-6 text-gray-300">
+                    <svg class="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                </div>
+                <h3 class="text-lg font-bold text-gray-900">System Standby</h3>
+                <p class="text-gray-500">Awaiting file ingestion for parallel processing.</p>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        const apiBase = 'https://faizanamir-my-transcription-api.hf.space';
+        const apiKey = 'dev-key-123'; // Matches the backend default
+
+        let isSystemPaused = false;
+
+        async function secureFetch(endpoint, options = {}) {
+            const headers = {
+                ...options.headers,
+                'X-API-Key': apiKey
+            };
+            return fetch(`${apiBase}${endpoint}`, { ...options, headers });
+        }
+
+        async function fetchStatus() {
+            try {
+                const res = await secureFetch('/status');
+                const data = await res.json();
+                
+                // Update System Metrics
+                document.getElementById('cpu-text').innerText = `CPU: ${data.cpu_usage}%`;
+                document.getElementById('cpu-bar').style.width = `${data.cpu_usage}%`;
+                document.getElementById('worker-count').innerText = `${data.active_workers} / ${data.max_workers}`;
+                document.getElementById('queue-count').innerText = data.queue_size;
+                document.getElementById('total-count').innerText = data.jobs.length;
+
+                // Update Pause State
+                isSystemPaused = data.is_paused;
+                const pauseIcon = document.getElementById('pause-icon');
+                const resumeIcon = document.getElementById('resume-icon');
+                const pauseBtn = document.getElementById('pause-btn');
+                
+                if (isSystemPaused) {
+                    pauseIcon.classList.add('hidden');
+                    resumeIcon.classList.remove('hidden');
+                    pauseBtn.className = "p-2 bg-amber-50 text-amber-600 rounded-lg hover:bg-amber-100 transition-colors border border-amber-200";
+                    document.getElementById('worker-count').classList.add('text-amber-600');
+                } else {
+                    pauseIcon.classList.remove('hidden');
+                    resumeIcon.classList.add('hidden');
+                    pauseBtn.className = "p-2 bg-indigo-50 text-indigo-600 rounded-lg hover:bg-indigo-100 transition-colors";
+                    document.getElementById('worker-count').classList.remove('text-amber-600');
+                }
+
+                renderJobs(data.jobs);
+            } catch (e) {
+                console.error('Metrics sync failed', e);
+            }
+        }
+
+        async function togglePause() {
+            const endpoint = isSystemPaused ? '/resume' : '/pause';
+            try {
+                await secureFetch(endpoint, { method: 'POST' });
+                fetchStatus();
+            } catch (e) {
+                console.error('Pause toggle failed', e);
+            }
+        }
+
+        async function cancelJob(jobId) {
+            if (confirm('Cancel this transcription task?')) {
+                try {
+                    await secureFetch(`/cancel/${jobId}`, { method: 'POST' });
+                    fetchStatus();
+                } catch (e) {
+                    console.error('Cancel failed', e);
+                }
+            }
+        }
+
+        function renderJobs(jobs) {
+            const container = document.getElementById('jobs-container');
+            const emptyState = document.getElementById('empty-state');
+            
+            if (jobs.length === 0) {
+                container.innerHTML = '';
+                emptyState.classList.remove('hidden');
+                return;
+            } else {
+                emptyState.classList.add('hidden');
+            }
+
+            const html = jobs.map(job => {
+                const statusColors = {
+                    'processing': 'bg-indigo-600',
+                    'completed': 'bg-emerald-500',
+                    'waiting': 'bg-slate-300',
+                    'failed': 'bg-rose-500',
+                    'cancelled': 'bg-gray-400'
+                };
+
+                const badgeColors = {
+                    'processing': 'bg-indigo-50 text-indigo-700',
+                    'completed': 'bg-emerald-50 text-emerald-700',
+                    'waiting': 'bg-slate-50 text-slate-700',
+                    'failed': 'bg-rose-50 text-rose-700',
+                    'cancelled': 'bg-gray-50 text-gray-700'
+                };
+
+                return `
+                    <div class="job-card bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-shadow">
+                        <div class="p-6">
+                            <div class="flex items-start justify-between mb-6">
+                                <div class="flex items-center space-x-4">
+                                    <div class="w-12 h-12 bg-gray-50 rounded-xl flex items-center justify-center text-gray-400">
+                                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"></path></svg>
+                                    </div>
+                                    <div>
+                                        <h4 class="font-bold text-gray-900 truncate w-48" title="${job.file}">${job.file}</h4>
+                                        ${job.duration > 0 ? `<p class="text-[10px] text-gray-400 font-bold uppercase mb-1">Duration: ${Math.floor(job.duration / 60)}m ${Math.floor(job.duration % 60)}s</p>` : ''}
+                                        <div class="flex items-center space-x-2">
+                                            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-bold uppercase tracking-tighter ${badgeColors[job.status] || 'bg-gray-50'}">
+                                                ${job.status}
+                                            </span>
+                                            ${(job.status === 'waiting' || job.status === 'processing') ? `
+                                                <button onclick="cancelJob(${job.id})" class="text-[10px] font-bold text-rose-500 hover:text-rose-700 uppercase transition-colors">Cancel</button>
+                                            ` : ''}
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="text-right">
+                                    <span class="text-lg font-black ${job.status === 'completed' ? 'text-emerald-600' : 'text-indigo-600'}">
+                                        ${job.progress}%
+                                    </span>
+                                </div>
+                            </div>
+
+                            <!-- Progress System -->
+                            <div class="relative w-full h-3 bg-gray-100 rounded-full overflow-hidden mb-6">
+                                <div class="progress-bar-fill absolute top-0 left-0 h-full ${statusColors[job.status] || 'bg-gray-400'}" style="width: ${job.progress}%"></div>
+                            </div>
+
+                            ${job.result ? `
+                                <div class="mt-4 p-4 bg-gray-50 rounded-xl border border-gray-100">
+                                    <p class="text-[10px] font-bold text-gray-400 uppercase mb-2">Transcription Output</p>
+                                    <div class="text-sm text-gray-700 leading-relaxed max-h-32 overflow-y-auto font-medium">
+                                        ${job.result}
+                                    </div>
+                                </div>` : ''}
+
+                            ${job.error ? `
+                                <div class="mt-4 p-4 bg-rose-50 rounded-xl border border-rose-100">
+                                    <p class="text-[10px] font-bold text-rose-400 uppercase mb-1">Stack Trace Error</p>
+                                    <p class="text-xs text-rose-700 font-mono">${job.error}</p>
+                                </div>` : ''}
+                        </div>
+                    </div>`;
+            }).join('');
+
+            container.innerHTML = html;
+        }
+
+        async function handleFileUpload(event) {
+            const files = event.target.files;
+            if (!files.length) return;
+            
+            const formData = new FormData();
+            for (let i = 0; i < files.length; i++) {
+                formData.append('files', files[i]);
+            }
+
+            try {
+                const res = await secureFetch('/upload', { method: 'POST', body: formData });
+                if (res.ok) {
+                    fetchStatus();
+                } else {
+                    alert('Upload Pipeline Failed: Unauthorized or Network Error');
+                }
+            } catch (e) { 
+                console.error(e);
+                alert('Connection Error'); 
+            }
+        }
+
+        async function clearAll() {
+            if (confirm('Clear all system job history?')) {
+                await secureFetch('/clear', { method: 'DELETE' });
+                fetchStatus();
+            }
+        }
+
+        // Drop Zone Logic
+        const dropZone = document.getElementById('drop-zone');
+        dropZone.ondragover = (e) => { e.preventDefault(); dropZone.classList.add('border-indigo-500', 'bg-indigo-50/50'); };
+        dropZone.ondragleave = () => { dropZone.classList.remove('border-indigo-500', 'bg-indigo-50/50'); };
+        dropZone.ondrop = (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('border-indigo-500', 'bg-indigo-50/50');
+            const files = e.dataTransfer.files;
+            if (files.length > 0) handleFileUpload({ target: { files: files } });
+        };
+
+        // Polling Initialization
+        fetchStatus();
+        setInterval(fetchStatus, 2000);
+    </script>
+</body>
+</html>
