@@ -1,8 +1,37 @@
+# Python bytecode
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+
+# Local uploads
 uploads/
+*.mp3
+*.wav
+*.m4a
+*.mp4
+*.mov
+*.mkv
+
+# Environment and Secrets
 .env
+.venv
+env/
+venv/
+ENV/
+
+# IDE specific
 .vscode/
+.idea/
+*.swp
+*.swo
+
+# Project specific
 node_modules/
 .pytest_cache/
 Architecture.png
+logs/
+*.log
+
+# Models (faster-whisper downloads models)
+models/

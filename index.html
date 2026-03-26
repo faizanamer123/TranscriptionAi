@@ -94,6 +94,19 @@
                 </div>
             </div>
 
+            <!-- Hardware Info -->
+            <div class="flex flex-wrap gap-4 mb-8">
+                <div class="px-4 py-2 bg-white border border-gray-200 rounded-full flex items-center space-x-2">
+                    <span class="w-2 h-2 bg-green-500 rounded-full"></span>
+                    <span class="text-xs font-bold text-gray-500 uppercase">System:</span>
+                    <span id="ram-info" class="text-xs font-mono font-bold text-indigo-600">-- GB RAM</span>
+                </div>
+                <div id="battery-tag" class="px-4 py-2 bg-white border border-gray-200 rounded-full flex items-center space-x-2 hidden">
+                    <svg class="w-4 h-4 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                    <span class="text-xs font-bold text-amber-600 uppercase">Power: Battery Mode</span>
+                </div>
+            </div>
+
             <!-- Upload Area -->
             <div class="mb-8">
                 <div 
@@ -129,8 +142,8 @@
     </div>
 
     <script>
-        // const apiBase = 'http://localhost:8001';
-        const apiBase = 'https://faizanamir-my-transcription-api.hf.space';
+        // Use relative URL so it works regardless of where it's hosted
+        const apiBase = window.location.origin;
 
         let isSystemPaused = false;
 
@@ -145,6 +158,15 @@
                 document.getElementById('worker-count').innerText = `${data.active_workers} / ${data.max_workers}`;
                 document.getElementById('queue-count').innerText = data.queue_size;
                 document.getElementById('total-count').innerText = data.jobs.length;
+
+                // Hardware Info
+                document.getElementById('ram-info').innerText = `${data.total_ram} RAM`;
+                const batteryTag = document.getElementById('battery-tag');
+                if (data.is_on_battery) {
+                    batteryTag.classList.remove('hidden');
+                } else {
+                    batteryTag.classList.add('hidden');
+                }
 
                 // Update Pause State
                 isSystemPaused = data.is_paused;
