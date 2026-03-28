@@ -199,8 +199,9 @@
             pauseBtn.classList.add('opacity-50', 'cursor-wait');
             
             const endpoint = isSystemPaused ? 'resume' : 'pause';
+            
             try {
-                await fetch(`${apiBase}/${endpoint}`, { method: 'POST' });
+                const response = await fetch(`${apiBase}/${endpoint}`, { method: 'POST' });
                 await fetchStatus();
             } catch (e) {
                 console.error('Pause toggle failed', e);
@@ -213,10 +214,59 @@
         async function cancelJob(jobId) {
             if (confirm('Cancel this transcription task?')) {
                 try {
+                    // IMMEDIATE UI UPDATE - Show cancelled status instantly
+                    const jobCard = document.querySelector(`[data-job-id="${jobId}"]`);
+                    if (jobCard) {
+                        const badge = jobCard.querySelector('.inline-flex.items-center');
+                        const progressText = jobCard.querySelector('.text-lg.font-black');
+                        const progressBar = jobCard.querySelector('.progress-bar-fill');
+                        const buttonContainer = badge.parentElement;
+                        
+                        // Store original state in case we need to restore
+                        const originalState = {
+                            badgeClass: badge.className,
+                            badgeText: badge.textContent,
+                            progressClass: progressText.className,
+                            progressText: progressText.textContent,
+                            barClass: progressBar.className,
+                            barWidth: progressBar.style.width
+                        };
+                        
+                        // Update status badge immediately
+                        badge.className = 'inline-flex items-center px-2 py-0.5 rounded text-xs font-bold uppercase tracking-tighter bg-gray-50 text-gray-700';
+                        badge.textContent = 'cancelled';
+                        
+                        // Update progress text immediately
+                        progressText.className = 'text-lg font-black text-gray-500';
+                        progressText.textContent = '0%';
+                        
+                        // Update progress bar immediately
+                        progressBar.className = 'progress-bar-fill absolute top-0 left-0 h-full bg-gray-400';
+                        progressBar.style.width = '0%';
+                        
+                        // Replace cancel button with "Cancelled" text immediately
+                        const cancelBtn = buttonContainer.querySelector('button[onclick*="cancelJob"]');
+                        if (cancelBtn) {
+                            const cancelledSpan = document.createElement('span');
+                            cancelledSpan.className = 'text-[10px] font-bold text-gray-500 uppercase';
+                            cancelledSpan.textContent = 'Cancelled';
+                            cancelBtn.parentNode.replaceChild(cancelledSpan, cancelBtn);
+                        }
+                        
+                        // Store original state for potential restoration
+                        jobCard.dataset.originalState = JSON.stringify(originalState);
+                    }
+                    
                     await fetch(`${apiBase}/cancel/${jobId}`, { method: 'POST' });
-                    fetchStatus();
+                    
+                    // Verify status after backend responds with longer delay to ensure backend caught up
+                    setTimeout(() => {
+                        fetchStatus();
+                    }, 2000);
                 } catch (e) {
                     console.error('Cancel failed', e);
+                    // If cancel fails, refresh status to restore original state
+                    fetchStatus();
                 }
             }
         }
@@ -235,7 +285,12 @@
 
             const html = jobs.map(job => {
                 const statusColors = {
+                    'preprocessing': 'bg-blue-400',
+                    'aligning': 'bg-purple-400',
+                    'diarizing': 'bg-pink-400',
                     'processing': 'bg-indigo-600',
+                    'transcribing': 'bg-blue-500',
+                    'finalizing': 'bg-orange-500',
                     'paused': 'bg-gray-400',
                     'completed': 'bg-emerald-500',
                     'waiting': 'bg-slate-300',
@@ -244,7 +299,12 @@
                 };
 
                 const badgeColors = {
+                    'preprocessing': 'bg-blue-50 text-blue-700',
+                    'aligning': 'bg-purple-50 text-purple-700',
+                    'diarizing': 'bg-pink-50 text-pink-700',
                     'processing': 'bg-indigo-50 text-indigo-700',
+                    'transcribing': 'bg-blue-50 text-blue-600',
+                    'finalizing': 'bg-orange-50 text-orange-700',
                     'paused': 'bg-gray-100 text-gray-700',
                     'completed': 'bg-emerald-50 text-emerald-700',
                     'waiting': 'bg-slate-50 text-slate-700',
@@ -253,7 +313,7 @@
                 };
 
                 return `
-                    <div class="job-card bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-shadow">
+                    <div class="job-card bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-shadow" data-job-id="${job.id}">
                         <div class="p-6">
                             <div class="flex items-start justify-between mb-6">
                                 <div class="flex items-center space-x-4">
@@ -267,14 +327,20 @@
                                             <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-bold uppercase tracking-tighter ${badgeColors[job.status] || 'bg-gray-50'}">
                                                 ${job.status}
                                             </span>
-                                            ${(job.status === 'waiting' || job.status === 'processing' || job.status === 'paused') ? `
+                                            ${!['completed', 'failed', 'cancelled'].includes(job.status) ? `
                                                 <button onclick="cancelJob(${job.id})" class="text-[10px] font-bold text-rose-500 hover:text-rose-700 uppercase transition-colors">Cancel</button>
+                                            ` : ''}
+                                            ${job.status === 'cancelled' ? `
+                                                <span class="text-[10px] font-bold text-gray-500 uppercase">Cancelled</span>
+                                            ` : ''}
+                                            ${job.status === 'completed' ? `
+                                                <a href="/download/${job.md_file}" target="_blank" class="text-[10px] font-bold text-emerald-500 hover:text-emerald-700 uppercase transition-colors">Download MD</a>
                                             ` : ''}
                                         </div>
                                     </div>
                                 </div>
                                 <div class="text-right">
-                                    <span class="text-lg font-black ${job.status === 'completed' ? 'text-emerald-600' : (job.status === 'paused' ? 'text-gray-600' : 'text-indigo-600')}">
+                                    <span class="text-lg font-black ${job.status === 'completed' ? 'text-emerald-600' : (job.status === 'cancelled' ? 'text-gray-500' : (job.status === 'paused' ? 'text-gray-600' : (job.status === 'failed' ? 'text-rose-600' : 'text-indigo-600')))}">
                                         ${job.progress}%
                                     </span>
                                 </div>
@@ -288,8 +354,8 @@
                             ${job.result ? `
                                 <div class="mt-4 p-4 bg-gray-50 rounded-xl border border-gray-100">
                                     <p class="text-[10px] font-bold text-gray-400 uppercase mb-2">Transcription Output</p>
-                                    <div class="text-sm text-gray-700 leading-relaxed max-h-32 overflow-y-auto font-medium">
-                                        ${job.result}
+                                    <div class="text-sm text-gray-700 leading-relaxed max-h-48 overflow-y-auto font-medium whitespace-pre-wrap">
+                                        ${job.result.includes('# Speaker Diarized Conversation') ? job.result : job.result.replace(/\*\*(SPEAKER_\d+)/g, '**$1')}
                                     </div>
                                 </div>` : ''}
 
@@ -319,18 +385,21 @@
                 if (res.ok) {
                     fetchStatus();
                 } else {
-                    alert('Upload Pipeline Failed');
+                    throw new Error('Upload failed');
                 }
             } catch (e) { 
                 console.error(e);
-                alert('Connection Error'); 
             }
         }
 
         async function clearAll() {
             if (confirm('Clear all system job history?')) {
-                await fetch(`${apiBase}/clear`, { method: 'DELETE' });
-                fetchStatus();
+                try {
+                    await fetch(`${apiBase}/clear`, { method: 'DELETE' });
+                    fetchStatus();
+                } catch (e) {
+                    console.error(e);
+                }
             }
         }
 

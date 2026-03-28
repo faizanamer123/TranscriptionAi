@@ -1,9 +1,38 @@
+# Core Transcription & AI
+whisperx==3.8.1
+faster-whisper==1.2.1
+torch==2.8.0
+torchaudio==2.8.0
+transformers==4.57.6
+
+# Speaker Diarization
+pyannote.audio==4.0.4
+pyannote.core==6.0.1
+pyannote.database==6.1.1
+pyannote.metrics==4.0.0
+pyannote.pipeline==4.0.0
+
+# Audio Processing
+librosa==0.11.0
+soundfile==0.13.1
+pydub==0.25.1
+ffmpeg-python==0.2.0
+
+# Utilities
+ctranslate2==4.6.3
+huggingface-hub==0.36.0
+pandas==3.0.0
+numpy==2.3.4
+nltk==3.9.2
+tqdm==4.67.2
+python-dotenv==1.2.1
+psutil==5.9.8
+
+# Web Framework
 fastapi==0.109.0
 uvicorn==0.27.0
 python-multipart==0.0.6
-faster-whisper==0.10.0
-av==11.0.0 --only-binary=av
-psutil==5.9.8
-httpx==0.26.0
-pytest==7.4.4
-python-dotenv==1.0.1
+
+# Optional: For enhanced performance
+# accelerate>=0.20.0
+# optimum>=1.10.0
