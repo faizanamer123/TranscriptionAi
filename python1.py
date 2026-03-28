@@ -1121,31 +1121,5 @@ async def clear():
     sync_pool(shared_state["allowed_workers"]); jobs.clear(); active_ids.clear(); return {"status": "cleared"}
 
 if __name__ == "__main__":
-    try:
-        uvicorn.run(app, host="0.0.0.0", port=8000, log_config="uvicorn.config")
-    except KeyboardInterrupt:
-        logger.info("Received keyboard interrupt, shutting down gracefully...")
-        # Cancel all active jobs before shutdown
-        for job in jobs:
-            if job["status"] not in ["completed", "failed", "cancelled"]:
-                shared_state[f"cancel_{job['id']}"] = True
-                job["status"] = "cancelled"
-        
-        # Give workers time to finish current tasks
-        time.sleep(2)
-        
-        # Terminate workers gracefully
-        for worker in worker_pool:
-            try:
-                worker.terminate(timeout=5)
-            except:
-                try:
-                    worker.kill()
-                except:
-                    pass
-        
-        logger.info("All workers terminated")
-    except Exception as e:
-        logger.error(f"Error during shutdown: {e}")
-    finally:
-        logger.info("Application shutdown complete")
+    multiprocessing.freeze_support()
+    uvicorn.run("python1:app", host="0.0.0.0", port=8002, reload=True)
