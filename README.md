@@ -1,252 +1,162 @@
-# 🎯 Transcription AI - Advanced Audio Transcription System
+# TranscriptionAi
 
-A powerful, production-ready audio transcription system with speaker diarization, real-time job management, and conversation formatting.
+Local web service that **transcribes** audio/video (WhisperX), **aligns** words, optionally **diarizes speakers** (pyannote via Hugging Face), and writes **markdown conversation transcripts**. A **FastAPI** server queues jobs; **worker processes** run the models and report progress for the bundled **HTML UI**.
 
-## ✨ Features
+## What it does
 
-### 🎙️ **Core Transcription**
-- **Multi-format support** - MP3, WAV, M4A, and more
-- **Speaker diarization** - Automatically identifies different speakers
-- **Conversation formatting** - Clean, readable transcript output
-- **High accuracy** - Powered by WhisperX and advanced AI models
+| Step | Behavior |
+|------|----------|
+| Upload | Accepts common formats (e.g. MP3, WAV, M4A, MP4, MOV, MKV) into `uploads/`. |
+| Short files (≤ ~10 min) | Single-pass transcribe → align → diarize (if token set). |
+| Long files (> ~10 min) | Overlapping chunks for ASR; timestamps merged; **full-file** diarization for consistent speaker labels. |
+| Output | Markdown under `transcriptions/` with speaker lines and time ranges. |
+| Control | Pause/resume queue, cancel jobs, optional CPU/memory–based worker scaling. |
 
-### 🚀 **Advanced Features**
-- **Real-time job management** - Track transcription progress
-- **Pause/Resume functionality** - Control transcription processing
-- **Cancel support** - Stop jobs instantly with proper cleanup
-- **Batch processing** - Handle multiple files simultaneously
-- **Chunk processing** - Efficient handling of long audio files
+**Diarization** needs `HF_TOKEN` (see [Hugging Face access](https://huggingface.co/settings/tokens) and accept pyannote model terms). Without it, transcription still runs but **speaker labels are disabled**.
 
-### 🎨 **User Interface**
-- **Modern web interface** - Clean, responsive design
-- **Real-time updates** - Live progress tracking
-- **Instant feedback** - Optimistic UI updates
-- **Professional output** - Formatted conversation transcripts
+## Project layout
 
-### ⚡ **Performance**
-- **GPU acceleration** - CUDA support for faster processing
-- **Parallel processing** - Multi-core CPU utilization
-- **Memory optimization** - Efficient resource management
-- **Chunked processing** - Handle files of any length
-- **Hardware-aware scaling** - Automatically detects CPU cores and GPU availability
-- **Dynamic resource monitoring** - Real-time system resource tracking
+| File | Role |
+|------|------|
+| `python1.py` | Entry: runs `server.run()` (uvicorn). |
+| `server.py` | FastAPI app, routes, job list, dispatcher, `asyncio` lock for shared state. |
+| `worker.py` | Pool workers: WhisperX + alignment + diarization pipeline. |
+| `transcript.py` | Post-processing: UNKNOWN fill-in, merge by speaker, orphan cleanup, markdown. |
+| `chunking.py` | Long-audio chunking and speaker count hints. |
+| `settings.py` | Env, logging, `HF_TOKEN`, constants (`JOBS_MAX`, chunk length/overlap, sample rate). |
+| `hardware.py` | CPU/RAM–based worker limits. |
+| `index.html` | Static UI (Tailwind CDN). |
+| `requirements.txt` | Pinned Python dependencies. |
+| `run.sh` | Runs `.venv/bin/python python1.py` (macOS/Linux if `python` is missing). |
 
-## 🛠️ Installation
+## Requirements
 
-### Prerequisites
-- **Python 3.10 or 3.11** (Highly Recommended). Python 3.13 is NOT supported due to the removal of the `audioop` module required by `pydub`.
-- **FFmpeg**: Required for speaker diarization and audio processing
-- **CUDA-compatible GPU** (recommended for performance)
+### Software
 
-### Quick Setup
+- **Python 3.11** (recommended). WhisperX **3.8.x** does not support Python **3.14+**; use 3.11 in a venv.
+- **FFmpeg** on `PATH` (pydub / decoding).  
+  - macOS: `brew install ffmpeg`  
+  - Ubuntu: `sudo apt install ffmpeg`  
+  - Windows: install FFmpeg and add its `bin` to PATH.
+- **Git** (optional, for clone).
 
-1. **Install FFmpeg (Windows)**
+### Python packages
+
+Install everything with:
+
+```bash
+pip install -r requirements.txt
+```
+
+Main stack (see `requirements.txt` for versions):
+
+- **Transcription / ML:** `whisperx`, `faster-whisper`, `torch`, `torchaudio`, `transformers`
+- **Diarization:** `pyannote.audio` (+ related `pyannote.*`)
+- **Audio:** `pydub`, `librosa`, `soundfile`, `ffmpeg-python`
+- **Web:** `fastapi`, `uvicorn`, `python-multipart`
+- **Utils:** `python-dotenv`, `psutil`, `numpy`, `pandas`, etc.
+
+### Hardware
+
+- **Minimum:** ~4 GB RAM, 2 cores (CPU-only is slow for large-v3).
+- **Recommended:** 8 GB+ RAM, NVIDIA GPU with CUDA for reasonable speed on `large-v3`.
+- **Disk:** several GB for models and caches (Hugging Face / PyTorch).
+
+### Environment variable
+
+| Variable | Required | Purpose |
+|----------|----------|---------|
+| `HF_TOKEN` | For diarization | Hugging Face token with access to pyannote models. |
+
+Copy `.env.example` to `.env` and set `HF_TOKEN=...`.
+
+Tunable constants (code, not env): `JOBS_MAX`, `CHUNK_SEC`, `CHUNK_OVERLAP_SEC`, `LONG_AUDIO_SEC`, `SAMPLE_RATE` in `settings.py`. **HTTP port** and bind address are in `server.py` (`run()` defaults to `0.0.0.0:8002`).
+
+## Installation
+
+1. **Clone** the repo and `cd` into it.
+
+2. **Create a virtual environment** (Python 3.11):
+
    ```bash
-   # Download the "full-shared" build from gyan.dev
-   # https://www.gyan.dev/ffmpeg/builds/ffmpeg-git-full.7z
-   # Extract and add the bin folder to your PATH
-   # Verify: ffmpeg -version
-   ```
-
-2. **Create Virtual Environment**
-   ```bash
-   # Windows
-   py -3.11 -m venv .venv
-   .venv\Scripts\activate
-   
-   # macOS/Linux
    python3.11 -m venv .venv
-   source .venv/bin/activate
+   source .venv/bin/activate    # Windows: .venv\Scripts\activate
    ```
 
-3. **Install Dependencies**
+3. **Install dependencies:**
+
    ```bash
    pip install --upgrade pip
    pip install -r requirements.txt
    ```
 
-4. **Set up Environment**
+4. **Configure `.env`:**
+
    ```bash
-   # Create .env file with your Hugging Face token
-   echo "HF_TOKEN=your_huggingface_token_here" > .env
+   cp .env.example .env
+   # Edit .env and set HF_TOKEN=...
    ```
 
-5. **Run the Application**
-   ```bash
-   python python1.py
-   ```
+## How to run
 
-6. **Access Web Interface**
-   Open `http://localhost:8000` in your browser
+From the project root (with venv activated):
 
-## 📋 Requirements
+```bash
+python3 python1.py
+```
 
-### Hardware Requirements
-- **Minimum**: 4GB RAM, 2 CPU cores
-- **Recommended**: 8GB+ RAM, 4+ CPU cores, NVIDIA GPU
-- **Storage**: 1GB+ free space for models and temp files
+If your shell has no `python` command (common on macOS), use:
 
-### Software Requirements
-- Python 3.10 or 3.11
-- CUDA Toolkit 11.0+ (for GPU acceleration)
-- FFmpeg (for audio processing)
+```bash
+.venv/bin/python python1.py
+```
 
-## 🎯 Usage
+Or:
 
-### Web Interface
-1. **Upload audio files** - Drag & drop or click to select
-2. **Monitor progress** - Real-time job status updates
-3. **Control jobs** - Pause, resume, or cancel transcriptions
-4. **Download results** - Get formatted conversation transcripts
+```bash
+chmod +x run.sh
+./run.sh
+```
 
-### Conversation Transcript Output
-The system generates clean conversation transcripts:
+Open **http://localhost:8002** (or **http://127.0.0.1:8002**).
+
+**CORS** is restricted to **`http://localhost` / `http://127.0.0.1`** (any port). Browsing the API from another host name (e.g. LAN IP) requires changing `allow_origin_regex` / `allow_origins` in `server.py`.
+
+## API (summary)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/` | Serves `index.html`. |
+| `POST` | `/upload` | Multipart file upload; creates jobs (`waiting`). |
+| `GET` | `/status` | Queue/worker stats and recent jobs (newest first). |
+| `POST` | `/pause` | Pause global processing; marks running jobs paused. |
+| `POST` | `/resume` | Resume. |
+| `POST` | `/cancel/{job_id}` | Cancel if job is in a cancellable state; otherwise **400**. |
+| `DELETE` | `/clear` | Kill workers, clear job list (destructive). |
+| `GET` | `/download/{filename}` | Download a `.md` file from `transcriptions/` (safe basename only). |
+
+## Output format
+
+Markdown transcripts look like:
 
 ```markdown
 # Speaker Diarized Conversation
 
 **Detected 2 speakers**
 
-**SPEAKER_00 (0:00.03-0:04.04)**: Good morning. I am Daniel. I am the head of this company.
+**SPEAKER_00 (0:00.00-0:04.04)**: Example line one.
 
-**SPEAKER_01 (0:04.92-0:08.00)**: Nice to meet you, sir. I am Simon.
+**SPEAKER_01 (0:04.92-0:08.00)**: Example line two.
 ```
 
+## Troubleshooting
 
-## 🔧 Configuration
+- **`python`: command not found** — Use `python3` or `.venv/bin/python`.
+- **Diarization disabled / warnings** — Set `HF_TOKEN`; accept model conditions on Hugging Face.
+- **FFmpeg / torchcodec warnings** — Install FFmpeg; on Apple Silicon, mismatched `torchcodec` vs PyTorch may warn; audio often still works via pydub/whisperx paths.
+- **CUDA not used** — Install a CUDA build of PyTorch matching your driver; CPU fallback works but is slower.
+- **Out of memory** — Close other apps; fewer concurrent jobs; shorter files or smaller Whisper model (would require code change from `large-v3`).
 
-### Environment Variables
-Create a `.env` file:
+## Acknowledgments
 
-```env
-# Hugging Face token for speaker diarization
-HF_TOKEN=your_huggingface_token_here
-
-# Optional: CUDA device
-CUDA_DEVICE=0
-
-# Optional: Worker count
-MAX_WORKERS=4
-```
-
-### Advanced Settings
-- **Worker configuration** - Automatically optimized for your hardware
-- **Chunk duration** - Adjustable for different audio lengths (default: 5 minutes)
-- **Speaker detection** - Configurable sensitivity settings
-- **Memory management** - 1.2GB per worker allocation
-
-## 🚀 Performance Features
-
-### Hardware Optimization
-- **Automatic detection** - CPU cores, GPU availability, RAM
-- **Dynamic scaling** - Optimal worker count calculation
-- **Multi-GPU support** - Distribute across available GPUs
-- **Memory monitoring** - Real-time resource tracking
-
-### Processing Features
-- **Chunk processing** - Handle files of any length
-- **Parallel workers** - Multi-core utilization
-- **GPU acceleration** - CUDA support for faster processing
-- **Smart cancellation** - Proper cleanup and resource management
-
-## 📊 API Endpoints
-
-### Job Management
-- `POST /upload` - Upload audio files
-- `GET /status` - Get all job statuses
-- `POST /pause` - Pause all processing
-- `POST /resume` - Resume processing
-- `POST /cancel/{job_id}` - Cancel specific job
-- `DELETE /clear` - Clear all jobs
-
-### File Operations
-- `GET /download/{job_id}` - Download transcription result
-- `GET /files/{filename}` - Access generated files
-
-## 🔍 Troubleshooting
-
-### Common Issues
-
-**CUDA not available**
-```bash
-# Install PyTorch with CUDA support
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
-```
-
-**FFmpeg not found**
-```bash
-# Ubuntu/Debian
-sudo apt install ffmpeg
-
-# macOS
-brew install ffmpeg
-
-# Windows - Download from https://ffmpeg.org/download.html
-# Use "full-shared" build for AI libraries
-```
-
-**Memory issues**
-- Reduce `MAX_WORKERS` in environment
-- Use smaller chunk sizes
-- Close other applications
-
-**Slow processing**
-- Ensure GPU acceleration is enabled
-- Check system resources
-- Optimize audio file quality
-
-### Debug Mode
-Enable debug logging:
-```bash
-export PYTHONPATH=$PYTHONPATH:.
-python python1.py
-```
-
-## 🌐 Network Access
-
-### Local Network
-Share with anyone on the same network:
-```bash
-# Find your IP
-ipconfig  # Windows
-ifconfig  # Mac/Linux
-
-# Access via: http://<YOUR_IP>:8000
-```
-
-### Cloud Deployment
-Deploy to services like:
-- **Render**
-- **Railway** 
-- **VPS** (Virtual Private Server)
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests if applicable
-5. Submit a pull request
-
-## 📄 License
-
-This project is licensed under the MIT License.
-
-## 🙏 Acknowledgments
-
-- **OpenAI Whisper** - Base transcription model
-- **WhisperX** - Enhanced transcription with alignment
-- **PyAnnote.audio** - Speaker diarization
-- **FastAPI** - Web framework
-- **PyTorch** - Deep learning framework
-
-## 📞 Support
-
-For issues and questions:
-- Create an issue on GitHub
-- Check the troubleshooting section
-- Review the API documentation
-
----
-
-**🎯 Transcription AI** - Professional audio transcription made simple
+- [WhisperX](https://github.com/m-bain/whisperX), [OpenAI Whisper](https://github.com/openai/whisper), [pyannote.audio](https://github.com/pyannote/pyannote-audio), [FastAPI](https://fastapi.tiangolo.com/), [PyTorch](https://pytorch.org/).

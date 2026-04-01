@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TranscribeAI | Enterprise Edition</title>
+    <title>TranscribeAI</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
@@ -39,7 +39,7 @@
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"></path>
                         </svg>
                     </div>
-                    <h1 class="text-xl font-extrabold tracking-tight text-gray-900">Transcribe<span class="text-indigo-600">AI</span> <span class="text-xs font-medium bg-indigo-50 text-indigo-600 px-2 py-1 rounded-md ml-2 uppercase tracking-widest">Enterprise</span></h1>
+                    <h1 class="text-xl font-extrabold tracking-tight text-gray-900">Transcribe<span class="text-indigo-600">AI</span></h1>
                 </div>
                 <div class="flex items-center space-x-6">
                     <div class="flex items-center space-x-4">
@@ -257,15 +257,14 @@
                         jobCard.dataset.originalState = JSON.stringify(originalState);
                     }
                     
-                    await fetch(`${apiBase}/cancel/${jobId}`, { method: 'POST' });
-                    
-                    // Verify status after backend responds with longer delay to ensure backend caught up
-                    setTimeout(() => {
+                    const res = await fetch(`${apiBase}/cancel/${jobId}`, { method: 'POST' });
+                    if (!res.ok) {
                         fetchStatus();
-                    }, 2000);
+                        return;
+                    }
+                    setTimeout(() => fetchStatus(), 500);
                 } catch (e) {
                     console.error('Cancel failed', e);
-                    // If cancel fails, refresh status to restore original state
                     fetchStatus();
                 }
             }
@@ -334,7 +333,7 @@
                                                 <span class="text-[10px] font-bold text-gray-500 uppercase">Cancelled</span>
                                             ` : ''}
                                             ${job.status === 'completed' ? `
-                                                <a href="/download/${job.md_file}" target="_blank" class="text-[10px] font-bold text-emerald-500 hover:text-emerald-700 uppercase transition-colors">Download MD</a>
+                                                <a href="${apiBase}/download/${job.md_file}" target="_blank" rel="noopener" class="text-[10px] font-bold text-emerald-500 hover:text-emerald-700 uppercase transition-colors">Download MD</a>
                                             ` : ''}
                                         </div>
                                     </div>
