@@ -6,18 +6,31 @@ import traceback
 import torch
 import whisperx
 from pydub import AudioSegment
-from whisperx.diarize import DiarizationPipeline
-
-from chunking import chunk_audio, detect_optimal_speakers
+from chunking import chunk_audio
+from diarization import diarize_to_dataframe, load_pyannote_pipeline
 from settings import (
     CHUNK_OVERLAP_SEC,
     CHUNK_SEC,
+    DIARIZATION_FALLBACK_MODEL,
+    DIARIZATION_MAX_SPEAKERS,
+    DIARIZATION_MIN_SPEAKERS,
+    DIARIZATION_MODEL,
     HF_TOKEN,
     LONG_AUDIO_SEC,
     SAMPLE_RATE,
+    TRANSCRIPT_ASSIGN_FILL_NEAREST,
     logger,
 )
 from transcript import build_conversation_markdown, enhance_speaker_assignment
+
+
+def _diarize_kwargs():
+    kw = {}
+    if DIARIZATION_MIN_SPEAKERS is not None:
+        kw["min_speakers"] = DIARIZATION_MIN_SPEAKERS
+    if DIARIZATION_MAX_SPEAKERS is not None:
+        kw["max_speakers"] = DIARIZATION_MAX_SPEAKERS
+    return kw
 
 
 def transcribe_chunk_only(chunk, asr_model, align_model, metadata, dev, chunk_idx):
@@ -89,11 +102,18 @@ def persistent_worker(task_queue, shared_state, _unused_job_map, idx):
 
         diarize_model = None
         if HF_TOKEN:
-            try:
-                diarize_model = DiarizationPipeline(token=HF_TOKEN, device=dev)
-                logger.info(f"Worker {idx}: diarization pipeline ready")
-            except Exception as e:
-                logger.error(f"Worker {idx}: diarization load failed: {e}")
+            torch_dev = torch.device(dev)
+            for model_name in (DIARIZATION_MODEL, DIARIZATION_FALLBACK_MODEL):
+                if not model_name:
+                    continue
+                diarize_model = load_pyannote_pipeline(
+                    model_name, HF_TOKEN, torch_dev, cache_dir=None
+                )
+                if diarize_model is not None:
+                    logger.info(f"Worker {idx}: diarization ({model_name}) ready")
+                    break
+            if diarize_model is None:
+                logger.error(f"Worker {idx}: no diarization model could be loaded")
         else:
             logger.warning(f"Worker {idx}: no HF_TOKEN — skipping diarization")
 
@@ -240,8 +260,8 @@ def persistent_worker(task_queue, shared_state, _unused_job_map, idx):
                         clear_cancel_flag(job_id, shared_state)
                         continue
 
-                    # Map each chunk's local timestamps to global time. Advance offset even if a
-                    # chunk failed — otherwise later chunks drift (overlap step must stay in sync).
+                    # Map each chunks local timestamps to global time. Advance offset even if a
+                    # chunk failed -> otherwise later chunks drift (overlap step must stay in sync).
                     all_segments = []
                     time_offset = 0.0
                     overlap_sec = float(CHUNK_OVERLAP_SEC)
@@ -303,9 +323,8 @@ def persistent_worker(task_queue, shared_state, _unused_job_map, idx):
                             clear_cancel_flag(job_id, shared_state)
                             continue
                         try:
-                            mn, mx = detect_optimal_speakers(audio_duration)
-                            global_diarization = diarize_model(
-                                audio, min_speakers=mn, max_speakers=mx
+                            global_diarization = diarize_to_dataframe(
+                                diarize_model, audio, **_diarize_kwargs()
                             )
                             if shared_state.get(f"cancel_{job_id}"):
                                 shared_state[job_id] = {
@@ -316,7 +335,9 @@ def persistent_worker(task_queue, shared_state, _unused_job_map, idx):
                                 clear_cancel_flag(job_id, shared_state)
                                 continue
                             result = whisperx.assign_word_speakers(
-                                global_diarization, merged_result
+                                global_diarization,
+                                merged_result,
+                                fill_nearest=TRANSCRIPT_ASSIGN_FILL_NEAREST,
                             )
                             result, acc = enhance_speaker_assignment(result)
                             logger.info(f"Job {job_id}: assignment coverage {acc:.2%}")
@@ -407,9 +428,8 @@ def persistent_worker(task_queue, shared_state, _unused_job_map, idx):
                         clear_cancel_flag(job_id, shared_state)
                         continue
                     try:
-                        mn, mx = detect_optimal_speakers(audio_duration)
-                        diarization = diarize_model(
-                            audio, min_speakers=mn, max_speakers=mx
+                        diarization = diarize_to_dataframe(
+                            diarize_model, audio, **_diarize_kwargs()
                         )
                         if shared_state.get(f"cancel_{job_id}"):
                             shared_state[job_id] = {
@@ -419,7 +439,11 @@ def persistent_worker(task_queue, shared_state, _unused_job_map, idx):
                             }
                             clear_cancel_flag(job_id, shared_state)
                             continue
-                        result = whisperx.assign_word_speakers(diarization, result)
+                        result = whisperx.assign_word_speakers(
+                            diarization,
+                            result,
+                            fill_nearest=TRANSCRIPT_ASSIGN_FILL_NEAREST,
+                        )
                         result, acc = enhance_speaker_assignment(result)
                         logger.info(f"Job {job_id}: assignment coverage {acc:.2%}")
                     except Exception as de:

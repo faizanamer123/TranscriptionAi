@@ -1,3 +1,5 @@
+from __future__ import annotations
+from typing import Any
 import asyncio
 import multiprocessing
 import os
@@ -9,7 +11,6 @@ import uvicorn
 from fastapi import FastAPI, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
-
 from hardware import detect_hardware
 from settings import JOBS_MAX, logger
 from worker import clear_cancel_flag, persistent_worker

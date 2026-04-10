@@ -17,13 +17,3 @@ def chunk_audio(audio, chunk_duration=300, sample_rate=16000, overlap=30):
         f"Split audio into {len(chunks)} chunks ({chunk_duration}s, {overlap}s overlap)"
     )
     return chunks
-
-
-def detect_optimal_speakers(audio_duration_sec: float, sample_rate: int = 16000) -> tuple[int, int]:
-    # pyannote min/max speakers — avoid collapsing to 1 speaker on interviews
-    _ = sample_rate
-    if audio_duration_sec < 300:
-        return 2, 3
-    if audio_duration_sec < 600:
-        return 2, 4
-    return 2, 6
